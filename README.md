@@ -59,3 +59,4 @@ The skills were tested across different setups. Claude Code with Opus 4.6 delive
 - Add recipes for game builds (Android export)
 - Publish a full game end-to-end as a public demo
 
+Follow progress: [@alex_erm](https://x.com/alex_erm)
