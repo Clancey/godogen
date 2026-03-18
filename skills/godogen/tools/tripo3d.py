@@ -265,7 +265,7 @@ def retarget_animation(
     anim_task_id, result = _create_post_task({
         "type": "animate_retarget",
         "original_model_task_id": task_id,
-        "animation": animations,
+        "animations": animations,
         "out_format": out_format,
         "bake_animation": bake_animation,
         "export_with_geometry": export_with_geometry,
