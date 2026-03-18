@@ -25,6 +25,11 @@ rsync -a --delete --exclude='doc_source/' --exclude='__pycache__/' \
 cp "$CLAUDE_MD" "$TARGET/CLAUDE.md"
 echo "Created CLAUDE.md (from $CLAUDE_MD)"
 
+# Install Python dependencies for tool scripts
+for req in "$TARGET"/.claude/skills/*/tools/requirements.txt; do
+    [ -f "$req" ] && pip install -q -r "$req" && echo "Installed deps from $req"
+done
+
 if [ ! -f "$TARGET/.gitignore" ]; then
     cat > "$TARGET/.gitignore" << 'GI_EOF'
 .claude
