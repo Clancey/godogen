@@ -1,4 +1,4 @@
-"""Tripo3D API client for image-to-3D model conversion.
+"""Tripo3D API client — generation, rigging, animation, and stylization.
 
 API docs: https://platform.tripo3d.ai/docs/generation
 
@@ -6,6 +6,10 @@ Model versions:
 - Turbo-v1.0-20250506: Fast generation
 - v3.0-20250812: Latest, supports geometry_quality=detailed (Ultra Mode)
 - v2.5-20250123: Default in API
+
+Rig model versions:
+- v1.0-20240301: Original
+- v2.0-20250506: Latest
 """
 
 import os
@@ -20,6 +24,34 @@ API_BASE = "https://api.tripo3d.ai/v2/openapi"
 MODEL_TURBO = "Turbo-v1.0-20250506"
 MODEL_V3 = "v3.0-20250812"
 MODEL_V25 = "v2.5-20250123"
+
+RIG_V1 = "v1.0-20240301"
+RIG_V2 = "v2.0-20250506"
+
+# Rig types (skeleton morphology)
+RIG_BIPED = "biped"
+RIG_QUADRUPED = "quadruped"
+RIG_HEXAPOD = "hexapod"
+RIG_OCTOPOD = "octopod"
+RIG_AVIAN = "avian"
+RIG_SERPENTINE = "serpentine"
+RIG_AQUATIC = "aquatic"
+RIG_OTHERS = "others"
+
+# Rig spec (skeleton standard)
+SPEC_MIXAMO = "mixamo"
+SPEC_TRIPO = "tripo"
+
+# Preset animations for retarget
+ANIMATIONS = [
+    "idle", "walk", "run", "dive", "climb", "jump",
+    "slash", "shoot", "hurt", "fall", "turn",
+    "quadruped_walk", "hexapod_walk", "octopod_walk",
+    "serpentine_march", "aquatic_march",
+]
+
+# Stylization presets
+STYLES = ["lego", "voxel", "voronoi", "minecraft"]
 
 
 def get_api_key() -> str:
@@ -110,12 +142,29 @@ def poll_task(task_id: str, timeout: int = 300, interval: int = 5) -> dict:
     raise TimeoutError(f"Task {task_id} timed out after {timeout}s")
 
 
+def _create_post_task(payload: dict, timeout: int = 300) -> tuple[str, dict]:
+    """Create a post-processing task and poll to completion. Returns (task_id, result)."""
+    api_key = get_api_key()
+    headers = {"Authorization": f"Bearer {api_key}"}
+    resp = requests.post(f"{API_BASE}/task", headers=headers, json=payload)
+    resp.raise_for_status()
+    task_id = resp.json()["data"]["task_id"]
+    print(f"  Tripo3D task: {task_id} (type={payload['type']})")
+    result = poll_task(task_id, timeout=timeout)
+    print(f"  Tripo3D completed ({payload['type']})")
+    return task_id, result
+
+
 def download_model(task_result: dict, output_path: Path) -> Path:
-    """Download GLB model from task result."""
-    # API returns pbr_model (with textures) or base_model
-    model_url = task_result["output"].get("pbr_model") or task_result["output"].get("base_model")
+    """Download model from task result. Checks pbr_model, model, base_model."""
+    output = task_result.get("output", {})
+    model_url = (
+        output.get("pbr_model")
+        or output.get("model")
+        or output.get("base_model")
+    )
     if not model_url:
-        raise ValueError(f"No model URL in task output: {task_result['output'].keys()}")
+        raise ValueError(f"No model URL in task output: {output.keys()}")
     resp = requests.get(model_url)
     resp.raise_for_status()
     output_path.write_bytes(resp.content)
@@ -160,4 +209,87 @@ def image_to_glb(
     result = poll_task(task_id, timeout=timeout)
     print(f"  Tripo3D completed")
 
-    return download_model(result, output_path)
+    download_model(result, output_path)
+    return task_id
+
+
+# --- Rigging ---
+
+def check_riggable(task_id: str, timeout: int = 120) -> dict:
+    """Check if a model can be rigged. Returns result with 'riggable' bool and suggested 'rig_type'."""
+    _, result = _create_post_task({
+        "type": "animate_prerigcheck",
+        "original_model_task_id": task_id,
+    }, timeout=timeout)
+    return result
+
+
+def rig_model(
+    task_id: str,
+    output_path: Path,
+    rig_type: str = RIG_BIPED,
+    spec: str = SPEC_MIXAMO,
+    out_format: str = "glb",
+    model_version: str = RIG_V2,
+    timeout: int = 300,
+) -> str:
+    """Rig a generated model (add skeleton for animation). Returns rig task_id for chaining."""
+    rig_task_id, result = _create_post_task({
+        "type": "animate_rig",
+        "original_model_task_id": task_id,
+        "model_version": model_version,
+        "out_format": out_format,
+        "rig_type": rig_type,
+        "spec": spec,
+    }, timeout=timeout)
+    download_model(result, output_path)
+    return rig_task_id
+
+
+# --- Animation retarget ---
+
+def retarget_animation(
+    task_id: str,
+    output_path: Path,
+    animations: list[str] | str = "idle",
+    out_format: str = "glb",
+    bake_animation: bool = True,
+    export_with_geometry: bool = False,
+    animate_in_place: bool = False,
+    timeout: int = 300,
+) -> str:
+    """Apply preset animation(s) to a rigged model. Returns animation task_id."""
+    if isinstance(animations, str):
+        animations = [animations]
+
+    anim_task_id, result = _create_post_task({
+        "type": "animate_retarget",
+        "original_model_task_id": task_id,
+        "animation": animations,
+        "out_format": out_format,
+        "bake_animation": bake_animation,
+        "export_with_geometry": export_with_geometry,
+        "animate_in_place": animate_in_place,
+    }, timeout=timeout)
+    download_model(result, output_path)
+    return anim_task_id
+
+
+# --- Stylization ---
+
+def stylize_model(
+    task_id: str,
+    output_path: Path,
+    style: str = "voxel",
+    block_size: int = 80,
+    timeout: int = 300,
+) -> str:
+    """Apply a stylization effect to a model. Returns stylize task_id."""
+    style_task_id, result = _create_post_task({
+        "type": "stylize_model",
+        "original_model_task_id": task_id,
+        "style": style,
+        "block_size": block_size,
+    }, timeout=timeout)
+    download_model(result, output_path)
+    return style_task_id

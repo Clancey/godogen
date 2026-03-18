@@ -1,6 +1,6 @@
 # Asset Generator
 
-Generate PNG images (Gemini) and GLB 3D models (Tripo3D) from text prompts.
+Generate PNG images (Gemini) and GLB 3D models (Tripo3D + Meshy) from text prompts.
 
 ## CLI Reference
 
@@ -82,6 +82,110 @@ python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py glb \
   --image assets/img/car.png --quality medium -o assets/glb/car.glb
 ```
 
+### Rig a model (20 cents)
+
+Adds a skeleton to a generated 3D model. Requires the `task_id` from the `glb` command output.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py rig \
+  --task-id TASK_ID_FROM_GLB --rig-type biped --spec mixamo \
+  -o assets/glb/character_rigged.glb
+```
+
+- `--rig-type`: `biped` (default), `quadruped`, `hexapod`, `octopod`, `avian`, `serpentine`, `aquatic`, `others`
+- `--spec`: `mixamo` (Mixamo-compatible, default) or `tripo` (Tripo native)
+- `--format`: `glb` (default) or `fbx`
+
+### Animate a rigged model (10 cents per animation)
+
+Applies preset animations to a rigged model. Requires the `task_id` from the `rig` command output.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py animate \
+  --task-id TASK_ID_FROM_RIG --animations idle,walk,run \
+  -o assets/glb/character_animated.glb
+```
+
+Available animations: `idle`, `walk`, `run`, `dive`, `climb`, `jump`, `slash`, `shoot`, `hurt`, `fall`, `turn`, `quadruped_walk`, `hexapod_walk`, `octopod_walk`, `serpentine_march`, `aquatic_march`
+
+- `--in-place`: no root motion (character stays at origin)
+- `--no-bake`: don't bake animation to bones
+- `--format`: `glb` (default) or `fbx`
+
+### Stylize a model (20 cents)
+
+Applies a visual stylization effect to a generated model.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py stylize \
+  --task-id TASK_ID_FROM_GLB --style voxel \
+  -o assets/glb/character_voxel.glb
+```
+
+Styles: `lego`, `voxel`, `voronoi`, `minecraft`
+
+- `--block-size`: resolution (default: 80, higher = more detail)
+
+### Meshy: Image to 3D (20 credits)
+
+Alternative to Tripo3D. Supports text-to-3D directly, Meshy-6 model, and built-in remeshing. Requires `MESHY_API_KEY` env var.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py meshy_img2glb \
+  --image assets/img/car.png -o assets/glb/car_meshy.glb
+```
+
+- `--ai-model`: `meshy-5`, `meshy-6`, or `latest` (default)
+- `--polycount`: target face count, 100-300000 (default: 30000)
+- `--no-pbr`: skip PBR map generation
+
+Also accepts image URLs: `--image "https://example.com/car.png"`
+
+### Meshy: Text to 3D (30 credits)
+
+Generate a 3D model directly from a text prompt (no image needed). Two-phase: preview then refine.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py meshy_txt2glb \
+  --prompt "A stylized medieval sword with ornate handle" \
+  -o assets/glb/sword.glb
+```
+
+### Meshy: Rig (10 credits)
+
+Auto-rig a humanoid model. Only works with textured humanoid GLBs under 300k faces.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py meshy_rig \
+  --task-id MESHY_TASK_ID -o assets/glb/char_rigged.glb
+```
+
+- `--height`: character height in meters (default: 1.7)
+
+### Meshy: Animate (5 credits)
+
+Apply an animation from Meshy's library to a rigged model.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py meshy_animate \
+  --rig-task-id RIG_TASK_ID --action-id 1 \
+  -o assets/glb/char_walk.glb
+```
+
+- `--action-id`: animation ID from Meshy's animation library
+- `--format`: `glb` (default) or `fbx`
+
+### Meshy: Remesh (5 credits)
+
+Retopologize or convert a model's mesh.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py meshy_remesh \
+  --task-id TASK_ID --polycount 5000 -o assets/glb/car_lowpoly.glb
+```
+
+- `--topology`: `triangle` (default) or `quad`
+
 ### Set budget
 
 ```bash
@@ -111,8 +215,17 @@ Progress goes to stderr.
 | GLB | lowpoly | 40 cents | 5k faces, smart topology |
 | GLB | high | 40 cents | Adaptive faces, detailed textures (+10c) |
 | GLB | ultra | 60 cents | Detailed textures + geometry (+10c +20c) |
+| Rig | — | 20 cents | Add skeleton to model |
+| Animate | — | 10 cents/anim | Apply preset animation to rigged model |
+| Stylize | — | 20 cents | Lego, voxel, voronoi, minecraft |
+| **Meshy** | | | |
+| Meshy img→3D | — | 20 cents | Image to GLB via Meshy |
+| Meshy txt→3D | — | 30 cents | Text to GLB (preview + refine) |
+| Meshy rig | — | 10 cents | Auto-rig humanoid model |
+| Meshy animate | — | 5 cents | Apply animation from library |
+| Meshy remesh | — | 5 cents | Retopologize / convert mesh |
 
-A full 3D asset (image + GLB) costs 37 cents at medium quality. A texture is 7 cents. A sprite sheet is 7 cents for 16 frames/items. A 2K image is 10 cents. A 4K image is 15 cents.
+A full 3D asset (image + GLB) costs 37 cents at medium quality (Tripo3D) or 27 cents (Meshy). A rigged + animated character costs ~67 cents (Tripo3D) or ~42 cents (Meshy). A texture is 7 cents. A sprite sheet is 7 cents for 16 frames/items.
 
 ## Image Resolution
 
@@ -170,6 +283,26 @@ Then: `rembg_matting.py input.png -o output.png`
 Then: `glb --image ... -o ...` — do NOT remove the background; Tripo3D needs the solid white bg for clean separation.
 
 Key: 3/4 front elevated angle, solid white/gray bg, matte finish (no reflections), opaque glass, single centered subject.
+
+### Animated 3D character (7c + 30c + 20c + 10c/anim = ~67c+)
+
+Full pipeline: image → GLB → rig → animate. Each step outputs a `task_id` for chaining.
+
+```bash
+# 1. Generate reference image (7c)
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py image --prompt "3D model reference of a knight..." -o assets/img/knight.png
+
+# 2. Convert to GLB (30c) — note the task_id in output
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py glb --image assets/img/knight.png -o assets/glb/knight.glb
+
+# 3. Rig with skeleton (20c) — use task_id from step 2
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py rig --task-id TASK_ID -o assets/glb/knight_rigged.glb
+
+# 4. Apply animations (10c each) — use task_id from step 3
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py animate --task-id RIG_TASK_ID --animations idle,walk,run,slash -o assets/glb/knight_animated.glb
+```
+
+For quadrupeds use `--rig-type quadruped` and animations like `quadruped_walk`.
 
 ### Animation → Spritesheet (7c)
 

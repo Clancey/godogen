@@ -10,7 +10,7 @@ You describe what you want. An AI pipeline designs the architecture, generates t
 
 - **Two Claude Code skills** orchestrate the entire pipeline — one plans, one executes. Each task runs in a fresh context to stay focused.
 - **Godot 4 output** — real projects with proper scene trees, scripts, and asset organization.
-- **Asset generation** — Gemini creates 2D art and textures; Tripo3D converts selected images to 3D models. Budget-aware: maximizes visual impact per cent spent.
+- **Asset generation** — Gemini creates 2D art and textures; Tripo3D and Meshy convert images to 3D models with auto-rigging and animation. Budget-aware: maximizes visual impact per cent spent.
 - **GDScript expertise** — custom-built language reference and lazy-loaded API docs for all 850+ Godot classes compensate for LLMs' thin training data on GDScript.
 - **Visual QA closes the loop** — captures actual screenshots from the running game and analyzes them with Gemini Flash vision. Catches z-fighting, missing textures, broken physics.
 - **Runs on commodity hardware** — any PC with Godot and Claude Code works.
@@ -23,7 +23,8 @@ You describe what you want. An AI pipeline designs the architecture, generates t
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
 - API keys as environment variables:
   - `GOOGLE_API_KEY` — Gemini, used for image generation and visual QA
-  - `TRIPO3D_API_KEY` — [Tripo3D](https://platform.tripo3d.ai/), used for image-to-3D model conversion (only needed for 3D games)
+  - `TRIPO3D_API_KEY` — [Tripo3D](https://platform.tripo3d.ai/), used for image-to-3D model conversion, rigging, and animation (only needed for 3D games)
+  - `MESHY_API_KEY` — [Meshy](https://www.meshy.ai/), alternative 3D model provider with text-to-3D, rigging, and animation (optional, only needed for 3D games)
 - Python 3 with pip (asset tools install their own deps)
 - Tested on Ubuntu and Debian. macOS is untested — screenshot capture depends on X11/xvfb/Vulkan and will need a native capture path to work.
 
