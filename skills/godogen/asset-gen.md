@@ -1,22 +1,37 @@
 # Asset Generator
 
-Generate PNG images (Gemini) and GLB 3D models (Tripo3D + Meshy) from text prompts.
+Generate PNG images (Gemini + Grok) and GLB 3D models (Tripo3D + Meshy) from text prompts.
 
 ## CLI Reference
 
 Tools live at `${CLAUDE_SKILL_DIR}/tools/`. Run from the project root.
 
-### Generate image (5-10 cents)
+### Generate image — Gemini (5-15 cents, default)
 
 ```bash
 python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py image \
   --prompt "the full prompt" -o assets/img/car.png
 ```
 
-`--size` (default `1K`): `512` (5c), `1K` (7c), `2K` (10c)
+`--size` (default `1K`): `512` (5c), `1K` (7c), `2K` (10c), `4K` (15c)
 `--aspect-ratio` (default `1:1`): `1:1`, `1:4`, `1:8`, `2:3`, `3:2`, `3:4`, `4:1`, `4:3`, `4:5`, `5:4`, `8:1`, `9:16`, `16:9`, `21:9`
 
 Typical combos: `--size 2K --aspect-ratio 16:9` (landscape bg), `--size 2K --aspect-ratio 9:16` (portrait), `--size 1K` (textures, sprites, 3D refs).
+
+### Generate image — Grok (2-7 cents)
+
+Cheaper alternative. Requires `XAI_API_KEY` env var.
+
+```bash
+python3 ${CLAUDE_SKILL_DIR}/tools/asset_gen.py image \
+  --provider grok --prompt "the full prompt" -o assets/img/car.png
+```
+
+`--grok-resolution` (default `1k`): `1k` (2c), `2k` (4c)
+`--grok-pro`: use pro model for higher quality — `1k` (7c), `2k` (14c)
+`--aspect-ratio`: `1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`, `auto`
+
+Grok is ~3x cheaper than Gemini at comparable resolution. Use Gemini when you need 4K, specific aspect ratios (1:4, 8:1, etc.), or sprite sheets (which rely on Gemini's template following).
 
 ### Remove background
 
@@ -206,11 +221,17 @@ Progress goes to stderr.
 
 | Operation | Preset | Cost | Notes |
 |-----------|--------|------|-------|
+| **Gemini images** | | | |
 | Image | --size 512 | 5 cents | Configurable aspect ratio |
 | Image | --size 1K | 7 cents | Default. Configurable aspect ratio |
 | Image | --size 2K | 10 cents | HQ objects, textures, backgrounds |
 | Image | --size 4K | 15 cents | Large game maps, panoramic backgrounds |
 | Sprite sheet | — | 7 cents | 1K, 4x4 grid (16 cells, 256x256 each) |
+| **Grok images** | | | |
+| Image | --grok-resolution 1k | 2 cents | Standard model |
+| Image | --grok-resolution 2k | 4 cents | Standard model |
+| Image | --grok-pro 1k | 7 cents | Pro model, higher quality |
+| Image | --grok-pro 2k | 14 cents | Pro model, higher quality |
 | GLB | medium | 30 cents | 20k faces, good default |
 | GLB | lowpoly | 40 cents | 5k faces, smart topology |
 | GLB | high | 40 cents | Adaptive faces, detailed textures (+10c) |
@@ -225,7 +246,7 @@ Progress goes to stderr.
 | Meshy animate | — | 5 cents | Apply animation from library |
 | Meshy remesh | — | 5 cents | Retopologize / convert mesh |
 
-A full 3D asset (image + GLB) costs 37 cents at medium quality (Tripo3D) or 27 cents (Meshy). A rigged + animated character costs ~67 cents (Tripo3D) or ~42 cents (Meshy). A texture is 7 cents. A sprite sheet is 7 cents for 16 frames/items.
+A full 3D asset costs 37c (Gemini + Tripo3D medium) or 22c (Grok + Meshy). A rigged + animated character costs ~67c (Tripo3D) or ~37c (Grok + Meshy). A Grok image is 2c vs Gemini 7c at 1K. Sprite sheets are Gemini-only (7c).
 
 ## Image Resolution
 

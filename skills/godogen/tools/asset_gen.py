@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Asset Generator CLI - images (Gemini), 3D models (Tripo3D + Meshy).
+"""Asset Generator CLI - images (Gemini + Grok), 3D models (Tripo3D + Meshy).
 
 Subcommands:
-  image          Generate a PNG from a prompt (5-15 cents)
+  image          Generate a PNG via Gemini (5-15 cents) or Grok (2-7 cents)
   spritesheet    Generate a 4x4 sprite sheet with template (7 cents)
   glb            Convert a PNG to a GLB 3D model via Tripo3D (30-60 cents)
   rig            Rig a Tripo3D model with a skeleton (20 cents)
@@ -22,6 +22,7 @@ import json
 import sys
 from pathlib import Path
 
+import requests
 from google import genai
 from google.genai import types
 
@@ -133,13 +134,20 @@ IMAGE_SIZES = ["512", "1K", "2K", "4K"]
 IMAGE_COSTS = {"512": 5, "1K": 7, "2K": 10, "4K": 15}
 IMAGE_ASPECT_RATIOS = ["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"]
 
+# Grok image generation
+GROK_MODEL = "grok-imagine-image"
+GROK_MODEL_PRO = "grok-imagine-image-pro"
+GROK_RESOLUTIONS = ["1k", "2k"]
+GROK_ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "2:1", "1:2", "auto"]
+GROK_COSTS = {"1k": 2, "2k": 4}  # standard model
+GROK_PRO_COSTS = {"1k": 7, "2k": 14}  # pro model
 
-def cmd_image(args):
+
+def _generate_gemini(args, output: Path) -> tuple[int, str]:
+    """Generate image via Gemini. Returns (cost_cents, service_name)."""
     size = args.size
     cost = IMAGE_COSTS[size]
     check_budget(cost)
-    output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
 
     config = types.GenerateContentConfig(
         response_modalities=["IMAGE"],
@@ -149,8 +157,7 @@ def cmd_image(args):
         ),
     )
     label = f"{size} {args.aspect_ratio}"
-
-    print(f"Generating image ({label})...", file=sys.stderr)
+    print(f"Generating image via Gemini ({label})...", file=sys.stderr)
 
     client = genai.Client()
     response = client.models.generate_content(
@@ -169,13 +176,79 @@ def cmd_image(args):
     for part in response.parts:
         if part.inline_data is not None:
             output.write_bytes(part.inline_data.data)
-            print(f"Saved: {output}", file=sys.stderr)
-            record_spend(cost, "gemini")
-            result_json(True, path=str(output), cost_cents=cost)
-            return
+            return cost, "gemini"
 
     result_json(False, error="No image returned")
     sys.exit(1)
+
+
+def _generate_grok(args, output: Path) -> tuple[int, str]:
+    """Generate image via Grok. Returns (cost_cents, service_name)."""
+    import base64
+    import os
+
+    api_key = os.environ.get("XAI_API_KEY")
+    if not api_key:
+        result_json(False, error="XAI_API_KEY environment variable not set")
+        sys.exit(1)
+
+    resolution = args.grok_resolution
+    model = GROK_MODEL_PRO if args.grok_pro else GROK_MODEL
+    costs = GROK_PRO_COSTS if args.grok_pro else GROK_COSTS
+    cost = costs[resolution]
+    check_budget(cost)
+
+    # Map aspect ratio — Grok supports a subset
+    aspect = args.aspect_ratio
+    if aspect not in GROK_ASPECT_RATIOS:
+        aspect = "auto"
+
+    label = f"{model} {resolution} {aspect}"
+    print(f"Generating image via Grok ({label})...", file=sys.stderr)
+
+    payload = {
+        "model": model,
+        "prompt": args.prompt,
+        "n": 1,
+        "response_format": "b64_json",
+        "resolution": resolution,
+    }
+    if aspect != "auto":
+        payload["aspect_ratio"] = aspect
+
+    resp = requests.post(
+        "https://api.x.ai/v1/images/generations",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    b64 = data["data"][0].get("b64_json")
+    if not b64:
+        result_json(False, error="No image data in Grok response")
+        sys.exit(1)
+
+    output.write_bytes(base64.b64decode(b64))
+    return cost, "grok"
+
+
+def cmd_image(args):
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    provider = args.provider
+    if provider == "grok":
+        cost, service = _generate_grok(args, output)
+    else:
+        cost, service = _generate_gemini(args, output)
+
+    print(f"Saved: {output}", file=sys.stderr)
+    record_spend(cost, service)
+    result_json(True, path=str(output), cost_cents=cost)
 
 
 def generate_template(bg_color: str) -> bytes:
@@ -496,12 +569,20 @@ def main():
     parser = argparse.ArgumentParser(description="Asset Generator — images (Gemini), 3D models (Tripo3D + Meshy)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_img = sub.add_parser("image", help="Generate a PNG image (5-15¢ depending on size)")
+    p_img = sub.add_parser("image", help="Generate a PNG image via Gemini (5-15¢) or Grok (2-7¢)")
     p_img.add_argument("--prompt", required=True, help="Full image generation prompt")
+    p_img.add_argument("--provider", default="gemini", choices=["gemini", "grok"],
+                       help="Image provider: gemini (default) or grok")
+    # Gemini options
     p_img.add_argument("--size", choices=IMAGE_SIZES, default="1K",
-                       help="Resolution: 512 (5¢), 1K (7¢), 2K (10¢), 4K (15¢). Default: 1K.")
-    p_img.add_argument("--aspect-ratio", choices=IMAGE_ASPECT_RATIOS, default="1:1",
-                       help="Aspect ratio. Default: 1:1")
+                       help="[Gemini] Resolution: 512 (5¢), 1K (7¢), 2K (10¢), 4K (15¢). Default: 1K.")
+    p_img.add_argument("--aspect-ratio", choices=sorted(set(IMAGE_ASPECT_RATIOS + GROK_ASPECT_RATIOS)), default="1:1",
+                       help="Aspect ratio. Default: 1:1. Grok supports: " + ", ".join(GROK_ASPECT_RATIOS))
+    # Grok options
+    p_img.add_argument("--grok-resolution", choices=GROK_RESOLUTIONS, default="1k",
+                       help="[Grok] Resolution: 1k (2¢) or 2k (4¢). Default: 1k.")
+    p_img.add_argument("--grok-pro", action="store_true",
+                       help="[Grok] Use pro model (7¢/1k, 14¢/2k) for higher quality")
     p_img.add_argument("-o", "--output", required=True, help="Output PNG path")
     p_img.set_defaults(func=cmd_image)
 
